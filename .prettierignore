@@ -1,0 +1,6 @@
+node_modules/
+main.js
+esbuild.config.mjs
+tsconfig.json
+version-bump.mjs
+versions.json

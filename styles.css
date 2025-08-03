@@ -1,8 +1,41 @@
-/*
+/** Hide these file tree nodes completely */
+.workspace-leaf-content .super-simple-folder-focus-tree-item-hidden {
+	height: 0px;
+	opacity: 0;
+	pointer-events: none;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+/* Hide the parent tree item itself, but still allow children to show through */
+.workspace-leaf-content .super-simple-folder-focus-tree-item-parent > .tree-item-self {
+	height: 0px;
+	opacity: 0;
+	pointer-events: none;
+	padding: 0;
+	margin: 0;
+}
 
-If your plugin does not need CSS, delete this file.
+/* Remove excess padding and margin from the children */
+.workspace-leaf-content .super-simple-folder-focus-tree-item-parent > .tree-item-children {
+	padding: 0;
+	margin: 0;
+	border: none;
+}
 
-*/
+/* Style the focus header like a clickable row/button */
+.workspace-leaf-content .super-simple-folder-focus-header {
+	border-radius: var(--radius-s);
+	padding-top: 2px;
+	padding-bottom: 2px;
+	margin-top: 2px;
+	margin-bottom: 2px;
+}
+.workspace-leaf-content .super-simple-folder-focus-header:hover {
+	color: var(--nav-item-color-hover);
+	background-color: var(--nav-item-background-hover);
+	font-weight: var(--nav-item-weight-hover);
+}
+.workspace-leaf-content .super-simple-folder-focus-header-icon {
+	margin-left: 0.5em;
+	margin-right: 0.5em;
+	vertical-align: middle;
+}

@@ -1,134 +1,145 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { MenuItem, Plugin, setIcon, TFolder } from "obsidian";
 
-// Remember to rename these classes and interfaces!
-
-interface MyPluginSettings {
-	mySetting: string;
-}
-
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
-
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class SuperSimpleFolderFocus extends Plugin {
+	/**
+	 * In-memory variable. When defined, the file explorer uses this path as the top-level dir
+	 */
+	focusPath: string | undefined;
 
 	async onload() {
-		await this.loadSettings();
+		this.focusPath = undefined; // No focus by default
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+		// Add option in right-click menu of file explorer
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				if (file instanceof TFolder) {
+					menu.addItem((item: MenuItem) => {
+						item.setTitle("Focus on this folder")
+							.setIcon("eye")
+							.onClick(async () => {
+								await this.focusOnFolder(file);
+							});
+					});
 				}
+			}),
+		);
+
+		// Command to reset focus from command palette
+		this.addCommand({
+			id: "super-simple-folder-focus-command-unfocus",
+			name: "Unfocus",
+			callback: () => {
+				this.unfocus();
+			},
+		});
+	}
+
+	async onunload() {
+		await this.unfocus();
+	}
+
+	/**
+	 * Sets the focus folder in the file explorer
+	 */
+	async focusOnFolder(folder: TFolder) {
+		this.focusPath = folder.path;
+
+		if (!this.focusPath) {
+			return;
+		}
+
+		// We need to handle parents to hide them, but still allow their children to be visible
+		// const focusPathParents = this.focusPath
+		// 	.split("/")
+		// 	.slice(0, -1) // Ignore the last dir
+		// 	.reduce((acc, val, i) => {
+		// 		if (i === 0) {
+		// 			return [val];
+		// 		} else {
+		// 			acc.push(acc[i - 1] + "/" + val);
+		// 			return acc;
+		// 		}
+		// 	}, [] as string[]);
+		const focusPathParents = this.focusPath
+			.split("/")
+			.slice(0, -1)  // Ignore the last dir
+			.map((_, i, parts) => parts.slice(0, i + 1).join("/"));
+
+		const fileExplorers = this.app.workspace.getLeavesOfType("file-explorer");
+		fileExplorers.forEach(async (fileExplorerLeaf) => {
+
+			// Add unfocus header button
+			const navHeader = fileExplorerLeaf.view.containerEl.querySelector("div.nav-header");
+			const existingHeader = navHeader?.querySelector(".super-simple-folder-focus-header");
+			if (existingHeader) {
+				existingHeader?.remove();
 			}
+			const focusHeader = document.createElement("div");
+			focusHeader.classList.add("super-simple-folder-focus-header");
+			const focusHeaderIcon = document.createElement("span");
+			focusHeaderIcon.classList.add("super-simple-folder-focus-header-icon");
+			setIcon(focusHeaderIcon, "eye");
+			focusHeader.appendChild(focusHeaderIcon);
+			const focusHeaderText = document.createElement("span");
+			focusHeaderText.textContent = folder.name;
+			focusHeader.appendChild(focusHeaderText);
+			navHeader?.appendChild(focusHeader);
+			this.registerDomEvent(focusHeader, "click", () => {
+				this.unfocus();
+			});
+
+			// Add/remove classes to file items
+			const fileItems = (fileExplorerLeaf.view as any).fileItems as Record<string, any>;
+			Object.values(fileItems).forEach((fileItem: any) => {
+				if (fileItem.file.path === this.focusPath) {
+					if (fileItem.collapsed) {
+						fileItem.selfEl.click(); // Expand via click if it's collapsed
+					}
+					// Same classes as parent (we want to hide and show in header instead)
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-focused");
+					fileItem.el.classList.add("super-simple-folder-focus-tree-item-parent");
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-hidden");
+				} else if (focusPathParents.some((parentPath) => fileItem.file.path === parentPath)) {
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-focused");
+					fileItem.el.classList.add("super-simple-folder-focus-tree-item-parent");
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-hidden");
+				} else if (fileItem.file.path.includes(this.focusPath)) {
+					fileItem.el.classList.add("super-simple-folder-focus-tree-item-focused");
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-parent");
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-hidden");
+				} else {
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-focused");
+					fileItem.el.classList.remove("super-simple-folder-focus-tree-item-parent");
+					fileItem.el.classList.add("super-simple-folder-focus-tree-item-hidden");
+				}
+			});
+		});
+	}
+
+	/** Reset folder focus back to root (unfocus) */
+	async unfocus() {
+		const fileExplorers = this.app.workspace.getLeavesOfType("file-explorer");
+		fileExplorers.forEach(async (fileExplorerLeaf) => {
+			const focusPath = this.focusPath; // Copy to avoid async issues
+
+			// Remove unfocus header button
+			const navHeader = fileExplorerLeaf.view.containerEl.querySelector("div.nav-header");
+			const existingHeader = navHeader?.querySelector(".super-simple-folder-focus-header");
+			if (existingHeader) {
+				existingHeader?.remove();
+			}
+
+			// Remove classes from file items
+			const fileItems = (fileExplorerLeaf.view as any).fileItems as Record<string, any>;
+			Object.values(fileItems).forEach((fileItem: any) => {
+				fileItem.el.classList.remove("super-simple-folder-focus-tree-item-focused");
+				fileItem.el.classList.remove("super-simple-folder-focus-tree-item-parent");
+				fileItem.el.classList.remove("super-simple-folder-focus-tree-item-hidden");
+			});
+			// Reload the file explorer view (hack to fix rendering issues)
+			fileExplorerLeaf.view.load();
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
-
-	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
+		this.focusPath = undefined; // Unset focus path after removing classes
 	}
 }
